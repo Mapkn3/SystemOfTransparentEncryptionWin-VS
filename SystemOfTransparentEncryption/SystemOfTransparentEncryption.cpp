@@ -20,11 +20,9 @@
 #pragma comment(lib, "Crypt32.lib")
 #pragma comment(lib, "Argon2RefDll.lib")
 
-#define AES128 1
-#define CBC 1
-
 #define MAX_LOADSTRING 100
 
+#define SALT_SIZE 16
 #define NAME_SIZE 21
 #define KEY_SIZE 17 
 #define MAX_USERS 10
@@ -60,6 +58,7 @@ VOID getAndEncryptMessage(HWND);
 VOID decryptMessage(HWND);
 VOID addNewUser(PBYTE, PBYTE);
 INT_PTR CALLBACK addUser(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK selectUser(HWND, UINT, WPARAM, LPARAM);
 
 PBYTE rawText = NULL;
 int rawTextSize = 0;
@@ -108,7 +107,8 @@ VOID argon2(uint8_t* pwd, uint32_t pwdlen, uint8_t* salt, size_t saltlen, uint8_
 VOID crypt(PBYTE text, SIZE_T textSize, uint8_t* salt, size_t saltlen, BOOL isEncrypt) {
 	uint8_t* key = (uint8_t*)malloc(KEY_SIZE);
 	argon2((uint8_t*)users[currentUser].key, KEY_SIZE - 1, salt, saltlen, key);
-	const uint8_t* iv = key;
+	const uint8_t* iv = (const uint8_t*)malloc(17);
+	strcpy_s((char*)iv, 17, "Mapkn3InitVector");
 
 	struct AES_ctx ctx;
 	AES_init_ctx_iv(&ctx, key, iv);
@@ -211,7 +211,7 @@ VOID getAndEncryptMessage(HWND hForeground) {
 	TextFromClipboard(hForeground, textFromClipboard);
 
 	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
-		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Error"), MB_OK | MB_SERVICE_NOTIFICATION);
+		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
 		return;
 	}
 	if (textFromClipboard != NULL) {
@@ -225,12 +225,11 @@ VOID getAndEncryptMessage(HWND hForeground) {
 			text[i] = textFromClipboard[i];
 		}
 
-		size_t saltlen = 8;
-		uint8_t* salt = (uint8_t*)malloc(saltlen);
-		memset(salt, 0x00, saltlen);
-		generateSalt(salt, saltlen);
+		uint8_t* salt = (uint8_t*)malloc(SALT_SIZE);
+		memset(salt, 0x00, SALT_SIZE);
+		generateSalt(salt, SALT_SIZE);
 
-		crypt(text, textSize, salt, saltlen, TRUE);
+		crypt(text, textSize, salt, SALT_SIZE, TRUE);
 
 		PBYTE base64 = NULL;
 		int base64Size = toBase64(text, textSize, base64);
@@ -239,11 +238,11 @@ VOID getAndEncryptMessage(HWND hForeground) {
 		toBase64(text, textSize, base64);
 
 		PBYTE result = NULL;
-		int resultSize = base64Size + saltlen;
+		int resultSize = base64Size + SALT_SIZE;
 		result = (PBYTE)malloc(resultSize);
 		memset(result, 0, resultSize);
 		int k = 0;
-		for (int i = 0; i < saltlen; i++) {
+		for (int i = 0; i < SALT_SIZE; i++) {
 			result[k++] = salt[i];
 		}
 		for (int i = 0; i < base64Size; i++) {
@@ -256,7 +255,7 @@ VOID getAndEncryptMessage(HWND hForeground) {
 
 	}
 	else {
-		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Info"), MB_OK | MB_SERVICE_NOTIFICATION);
+		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 	}
 	TextToClipboard(hForeground, backUpClipboard, backUpClipboardSize);
 	free(textFromClipboard);
@@ -278,19 +277,18 @@ VOID decryptMessage(HWND hForeground) {
 	TextFromClipboard(hForeground, textFromClipboard);
 
 	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
-		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Error"), MB_OK | MB_SERVICE_NOTIFICATION);
+		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
 		return;
 	}
 	if (textFromClipboard != NULL) {
-		int saltlen = 8;
-		uint8_t* salt = (uint8_t*)malloc(saltlen);
-		memset(salt, 0x00, saltlen);
+		uint8_t* salt = (uint8_t*)malloc(SALT_SIZE);
+		memset(salt, 0x00, SALT_SIZE);
 
-		int base64Size = textFromClipboardSize - saltlen;
+		int base64Size = textFromClipboardSize - SALT_SIZE;
 		PBYTE base64 = (PBYTE)malloc(base64Size);
 		memset(base64, 0, base64Size);
 		int k = 0;
-		for (int i = 0; i < saltlen; i++) {
+		for (int i = 0; i < SALT_SIZE; i++) {
 			salt[i] = textFromClipboard[k++];
 		}
 		for (int i = 0; i < base64Size; i++) {
@@ -306,7 +304,7 @@ VOID decryptMessage(HWND hForeground) {
 		memset(text, 0, textSize);
 		fromBase64(base64, text);
 
-		crypt(text, textSize, salt, saltlen, FALSE);
+		crypt(text, textSize, salt, SALT_SIZE, FALSE);
 
 		rawTextSize = textSize;
 		rawText = (PBYTE)malloc(rawTextSize);
@@ -319,7 +317,7 @@ VOID decryptMessage(HWND hForeground) {
 
 		InvalidateRect(hWnd, NULL, TRUE);
 	} else {
-		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Info"), MB_OK | MB_SERVICE_NOTIFICATION);
+		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 	}
 	TextToClipboard(hForeground, backUpClipboard, backUpClipboardSize);
 	free(textFromClipboard);
@@ -367,9 +365,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     MSG msg;
 
 	srand(time(NULL));
-	if (!RegisterHotKey(NULL, 0, MOD_ALT, 'Q')) {
-		ErrorExit(TEXT("Q: "));
-	}
 	if (!RegisterHotKey(NULL, 1, MOD_ALT, 'E')) {
 		ErrorExit(TEXT("E: "));
 	}
@@ -380,15 +375,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     while (GetMessage(&msg, nullptr, 0, 0))
     {
 		if (msg.message == WM_HOTKEY) {
-			if (msg.wParam == 0) {
-				PostQuitMessage(0);
-				break;
-			}
-			if (msg.wParam == 1) {
-				getAndEncryptMessage(GetForegroundWindow());
-			}
-			if (msg.wParam == 2) {
-				decryptMessage(GetForegroundWindow());
+			if (userCount == -1) {
+				MessageBox(NULL, TEXT("Для начала добавьте собеседника"), TEXT("Предупреждение"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONWARNING);
+			} else {
+				switch (msg.wParam) {
+				    case 1:
+					    getAndEncryptMessage(GetForegroundWindow());
+					    break;
+				    case 2:
+					    decryptMessage(GetForegroundWindow());
+					    break;
+				}
 			}
 		}
 
@@ -404,9 +401,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	}
 	if (!UnregisterHotKey(NULL, 1)) {
 		ErrorExit(TEXT("Un E: "));
-	}
-	if (!UnregisterHotKey(NULL, 0)) {
-		ErrorExit(TEXT("Un Q: "));
 	}
     return (int) msg.wParam;
 }
@@ -490,6 +484,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			case IDM_ADD_USER:
 				DialogBox(hInst, MAKEINTRESOURCE(IDD_ADD_USER), hWnd, addUser);
 				break;
+			case IDM_SELECT_USER:
+				DialogBox(hInst, MAKEINTRESOURCE(IDD_SELECT_USER), hWnd, selectUser);
+				break;
             case IDM_ABOUT:
                 DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
                 break;
@@ -506,16 +503,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		    PBYTE user = NULL;
 			size_t userLen = 0;
 		    if (userCount >= 0) {
-				const char* title = "Текущий пользователь: ";
+				const char* title = "Текущий собеседник: ";
 				int titleLen = strlen(title);
-				userLen = titleLen + NAME_SIZE;
+ 				int nameLen = 0;
+				for (; users[currentUser].name[nameLen] != 0x00; nameLen++) {}
+				userLen = titleLen + nameLen;
 				user = (PBYTE)malloc(userLen);
-				memset(user, 0, userLen);
+				memset(user, 0x00, userLen);
 				
 				for (int i = 0; i < titleLen; i++) {
 					user[i] = title[i];
 				}
-				for (int i = 0; i < NAME_SIZE; i++) {
+				for (int i = 0; i < nameLen; i++) {
 					user[titleLen + i] = users[currentUser].name[i];
 				}
 			}
@@ -526,9 +525,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			TextOutA(hdc, 10, 40, (LPCSTR)rawText, rawTextSize);
 			EndPaint(hWnd, &ps);
-			memset(rawText, 0x00, rawTextSize);
-			free(rawText);
-			rawTextSize = 0;
 			free(user);
         }
         break;
@@ -606,7 +602,7 @@ INT_PTR CALLBACK addUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				MessageBox(hDlg,
 					L"Длина пароля должна быть 16 символов",
 					L"Ошибка",
-					MB_OK);
+					MB_OK | MB_ICONERROR);
 
 				//EndDialog(hDlg, TRUE);
 				return (INT_PTR)FALSE;
@@ -633,7 +629,7 @@ INT_PTR CALLBACK addUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				MessageBox(hDlg,
 					L"Длина имени должна быть 20 символов",
 					L"Ошибка",
-					MB_OK);
+					MB_OK | MB_ICONERROR);
 
 				//EndDialog(hDlg, TRUE);
 				return (INT_PTR)FALSE;
@@ -650,6 +646,55 @@ INT_PTR CALLBACK addUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				(LPARAM)lpszName);
 
 			addNewUser((PBYTE)lpszName, (PBYTE)lpszKey);
+
+			EndDialog(hDlg, TRUE);
+			return (INT_PTR)TRUE;
+
+		case IDCANCEL:
+			EndDialog(hDlg, TRUE);
+			return (INT_PTR)TRUE;
+		}
+		return 0;
+	}
+	return (INT_PTR)FALSE;
+
+	UNREFERENCED_PARAMETER(lParam);
+}
+
+INT_PTR CALLBACK selectUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_INITDIALOG:
+		BYTE name[NAME_SIZE];
+		for (int i = 0; i <= userCount; i++) {
+			memset(name, 0x00, NAME_SIZE);
+			strcpy_s((char*)name, NAME_SIZE, (char*)users[i].name);
+			SendDlgItemMessageA(hDlg, IDC_USER_COMBO, CB_ADDSTRING, 0, (LPARAM)name);
+		}
+		SendDlgItemMessage(hDlg, IDC_USER_COMBO, CB_SETCURSEL, currentUser, 0);
+		// Set the default push button to "Cancel." 
+		SendMessage(hDlg,
+			DM_SETDEFID,
+			(WPARAM)IDCANCEL,
+			(LPARAM)0);
+
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Set the default push button to "OK" when the user enters text. 
+		if (HIWORD(wParam) == CBN_SELCHANGE)
+		{
+			SendMessage(hDlg,
+				DM_SETDEFID,
+				(WPARAM)IDOK,
+				(LPARAM)0);
+		}
+		switch (wParam)
+		{
+		case IDOK:
+			currentUser = SendDlgItemMessageA(hDlg, IDC_USER_COMBO, CB_GETCURSEL, 0, 0);
+			InvalidateRect(hWnd, NULL, TRUE);
 
 			EndDialog(hDlg, TRUE);
 			return (INT_PTR)TRUE;
