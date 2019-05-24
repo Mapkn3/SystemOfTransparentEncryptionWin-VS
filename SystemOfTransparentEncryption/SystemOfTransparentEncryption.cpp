@@ -371,11 +371,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	if (!RegisterHotKey(NULL, 2, MOD_ALT, 'D')) {
 		ErrorExit(TEXT("D: "));
 	}
+	if (!RegisterHotKey(NULL, 3, MOD_ALT, 'N')) {
+		ErrorExit(TEXT("N: "));
+	}
+	if (!RegisterHotKey(NULL, 4, MOD_ALT, 'C')) {
+		ErrorExit(TEXT("C: "));
+	}
     // Цикл основного сообщения:
     while (GetMessage(&msg, nullptr, 0, 0))
     {
 		if (msg.message == WM_HOTKEY) {
-			if (userCount == -1) {
+			if (userCount == -1 && (msg.wParam == 1 || msg.wParam == 2)) {
 				MessageBox(NULL, TEXT("Для начала добавьте собеседника"), TEXT("Предупреждение"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONWARNING);
 			} else {
 				switch (msg.wParam) {
@@ -385,6 +391,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 				    case 2:
 					    decryptMessage(GetForegroundWindow());
 					    break;
+					case 3:
+						DialogBox(hInst, MAKEINTRESOURCE(IDD_ADD_USER), hWnd, addUser);
+						break;
+					case 4:
+						DialogBox(hInst, MAKEINTRESOURCE(IDD_SELECT_USER), hWnd, selectUser);
+						break;
 				}
 			}
 		}
@@ -396,6 +408,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
     }
 
+	if (!UnregisterHotKey(NULL, 4)) {
+		ErrorExit(TEXT("Un C: "));
+	}
+	if (!UnregisterHotKey(NULL, 3)) {
+		ErrorExit(TEXT("Un N: "));
+	}
 	if (!UnregisterHotKey(NULL, 2)) {
 		ErrorExit(TEXT("Un D: "));
 	}
