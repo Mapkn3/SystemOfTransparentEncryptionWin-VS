@@ -325,14 +325,14 @@ VOID decryptMessage(HWND hForeground) {
 }
 
 VOID addNewUser(PBYTE name, PBYTE key) {
-	userCount += 1;
-	if (userCount < MAX_USERS) {
+	if (userCount + 1 < MAX_USERS) {
+		userCount += 1;
 		strcpy_s((char*)users[userCount].name, NAME_SIZE, (char*)name);
 		strcpy_s((char*)users[userCount].key, KEY_SIZE, (char*)key);
-	}
-	currentUser += 1;
-	if (currentUser == MAX_USERS) {
-		currentUser = 0;
+		currentUser += 1;
+		if (currentUser == MAX_USERS) {
+			currentUser = 0;
+		}
 	}
 	InvalidateRect(hWnd, NULL, TRUE);
  }
@@ -690,6 +690,7 @@ INT_PTR CALLBACK selectUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 			strcpy_s((char*)name, NAME_SIZE, (char*)users[i].name);
 			SendDlgItemMessageA(hDlg, IDC_USER_COMBO, CB_ADDSTRING, 0, (LPARAM)name);
 		}
+		SendDlgItemMessageA(hDlg, IDC_USER_COMBO, CB_SETDROPPEDWIDTH, 0, (LPARAM)name);
 		SendDlgItemMessage(hDlg, IDC_USER_COMBO, CB_SETCURSEL, currentUser, 0);
 		// Set the default push button to "Cancel." 
 		SendMessage(hDlg,
