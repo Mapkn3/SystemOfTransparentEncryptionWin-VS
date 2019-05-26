@@ -197,7 +197,6 @@ VOID TextToClipboard(HWND hwnd, PBYTE data, SIZE_T dataSize) {
 }
 
 VOID encryptClipboard(HWND hWnd) {
-	LPCWSTR message = TEXT("Не найден текст в буфере обмена");
 	PBYTE textFromClipboard = NULL;
 	SIZE_T textFromClipboardSize = TextFromClipboard(hWnd, textFromClipboard);
 	textFromClipboard = (PBYTE)malloc(textFromClipboardSize);
@@ -242,10 +241,10 @@ VOID encryptClipboard(HWND hWnd) {
 		free(text);
 		free(result);
 		free(textFromClipboard);
-
-		message = TEXT("Текст в буфере обмена зашифрован");
 	}
-	MessageBox(NULL, message, TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
+	else {
+		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
+	}
 }
 
 VOID decryptClipboard(HWND hWnd) {
@@ -290,10 +289,6 @@ VOID decryptClipboard(HWND hWnd) {
 
 		free(text);
 		free(textFromClipboard);
-
-		InvalidateRect(hWnd, NULL, TRUE);
-
-		MessageBox(NULL, TEXT("Текст в буфере обмена дешифрован"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 	}
 }
 
@@ -310,6 +305,17 @@ VOID getAndEncryptMessage(HWND hForeground) {
 	TextFromClipboard(hForeground, backUpClipboard);
 
 	EnumChildWindows(hForeground, TrySendMessage, WM_CUT);
+
+	PBYTE textFromClipboard = NULL;
+	SIZE_T textFromClipboardSize = TextFromClipboard(hForeground, textFromClipboard);
+	textFromClipboard = (PBYTE)malloc(textFromClipboardSize);
+	memset(textFromClipboard, 0, textFromClipboardSize);
+	TextFromClipboard(hForeground, textFromClipboard);
+	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
+		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
+		return;
+	}
+
 	encryptClipboard(hForeground);
 	EnumChildWindows(hForeground, TrySendMessage, WM_PASTE);
 	free(backUpClipboard);
@@ -323,6 +329,16 @@ VOID decryptMessage(HWND hForeground) {
 	TextFromClipboard(hForeground, backUpClipboard);
 
 	EnumChildWindows(hForeground, TrySendMessage, WM_COPY);
+
+	PBYTE textFromClipboard = NULL;
+	SIZE_T textFromClipboardSize = TextFromClipboard(hForeground, textFromClipboard);
+	textFromClipboard = (PBYTE)malloc(textFromClipboardSize);
+	memset(textFromClipboard, 0, textFromClipboardSize);
+	TextFromClipboard(hForeground, textFromClipboard);
+	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
+		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
+		return;
+	}
 	decryptClipboard(hForeground);
 	TextToClipboard(hForeground, backUpClipboard, backUpClipboardSize);
 	free(backUpClipboard);
@@ -397,7 +413,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 					    getAndEncryptMessage(GetForegroundWindow());
 					    break;
 				    case 2:
-					    decryptMessage(GetForegroundWindow());
+						decryptMessage(GetForegroundWindow());
+						InvalidateRect(hWnd, NULL, TRUE);
 					    break;
 					case 3:
 						DialogBox(hInst, MAKEINTRESOURCE(IDD_ADD_USER), hWnd, addUser);
@@ -407,9 +424,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 						break;
 					case 11:
 						encryptClipboard(GetForegroundWindow());
+						MessageBox(NULL, TEXT("Текст в буфере обмена зашифрован"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 						break;
 					case 12:
 						decryptClipboard(GetForegroundWindow());
+						InvalidateRect(hWnd, NULL, TRUE);
+						MessageBox(NULL, TEXT("Текст в буфере обмена дешифрован"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 						break;
 				}
 			}
