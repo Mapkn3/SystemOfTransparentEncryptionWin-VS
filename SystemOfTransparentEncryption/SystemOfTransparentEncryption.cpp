@@ -26,12 +26,13 @@
 #define NAME_SIZE 21
 #define KEY_SIZE 17 
 #define MAX_USERS 10
+
 struct User {
 	BYTE name[NAME_SIZE];
 	BYTE key[KEY_SIZE];
 } users[MAX_USERS];
 
-int userCount = -1;
+int userCount = 0;
 int currentUser = -1;
 
 // Глобальные переменные:
@@ -53,12 +54,16 @@ int toBase64(PBYTE, int, PBYTE);
 int fromBase64(PBYTE, PBYTE);
 SIZE_T TextFromClipboard(HWND, PBYTE);
 VOID TextToClipboard(HWND, PBYTE, SIZE_T);
+VOID encryptClipboard(HWND hWnd);
+VOID decryptClipboard(HWND hWnd);
 BOOL CALLBACK TrySendMessage(HWND, LPARAM);
 VOID getAndEncryptMessage(HWND);
 VOID decryptMessage(HWND);
 VOID addNewUser(PBYTE, PBYTE);
 INT_PTR CALLBACK addUser(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK selectUser(HWND, UINT, WPARAM, LPARAM);
+VOID saveFile();
+VOID loadFile();
 
 PBYTE rawText = NULL;
 int rawTextSize = 0;
@@ -191,29 +196,14 @@ VOID TextToClipboard(HWND hwnd, PBYTE data, SIZE_T dataSize) {
 	}
 }
 
-BOOL CALLBACK TrySendMessage(HWND hwnd, LPARAM msg) {
-	SendMessage(hwnd, msg, 0, 0);
-	return TRUE;
-}
-
-VOID getAndEncryptMessage(HWND hForeground) {
-	PBYTE backUpClipboard = NULL;
-	SIZE_T backUpClipboardSize = TextFromClipboard(hForeground, backUpClipboard);
-	backUpClipboard = (PBYTE)malloc(backUpClipboardSize);
-	memset(backUpClipboard, 0, backUpClipboardSize);
-	TextFromClipboard(hForeground, backUpClipboard);
-
-	EnumChildWindows(hForeground, TrySendMessage, WM_CUT);
+VOID encryptClipboard(HWND hWnd) {
+	LPCWSTR message = TEXT("Не найден текст в буфере обмена");
 	PBYTE textFromClipboard = NULL;
-	SIZE_T textFromClipboardSize = TextFromClipboard(hForeground, textFromClipboard);
+	SIZE_T textFromClipboardSize = TextFromClipboard(hWnd, textFromClipboard);
 	textFromClipboard = (PBYTE)malloc(textFromClipboardSize);
 	memset(textFromClipboard, 0, textFromClipboardSize);
-	TextFromClipboard(hForeground, textFromClipboard);
+	TextFromClipboard(hWnd, textFromClipboard);
 
-	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
-		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
-		return;
-	}
 	if (textFromClipboard != NULL) {
 		SIZE_T textSize = textFromClipboardSize;
 		if (textFromClipboardSize % 16 != 0) {
@@ -248,38 +238,23 @@ VOID getAndEncryptMessage(HWND hForeground) {
 		for (int i = 0; i < base64Size; i++) {
 			result[k++] = base64[i];
 		}
-		TextToClipboard(hForeground, result, resultSize);
-		EnumChildWindows(hForeground, TrySendMessage, WM_PASTE);
+		TextToClipboard(hWnd, result, resultSize);
 		free(text);
 		free(result);
+		free(textFromClipboard);
 
+		message = TEXT("Текст в буфере обмена зашифрован");
 	}
-	else {
-		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
-	}
-	TextToClipboard(hForeground, backUpClipboard, backUpClipboardSize);
-	free(textFromClipboard);
-	free(backUpClipboard);
+	MessageBox(NULL, message, TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 }
 
-VOID decryptMessage(HWND hForeground) {
-	PBYTE backUpClipboard = NULL;
-	SIZE_T backUpClipboardSize = TextFromClipboard(hForeground, backUpClipboard);
-	backUpClipboard = (PBYTE)malloc(backUpClipboardSize);
-	memset(backUpClipboard, 0, backUpClipboardSize);
-	TextFromClipboard(hForeground, backUpClipboard);
-
-	EnumChildWindows(hForeground, TrySendMessage, WM_COPY);
+VOID decryptClipboard(HWND hWnd) {
 	PBYTE textFromClipboard = NULL;
-	SIZE_T textFromClipboardSize = TextFromClipboard(hForeground, textFromClipboard);
+	SIZE_T textFromClipboardSize = TextFromClipboard(hWnd, textFromClipboard);
 	textFromClipboard = (PBYTE)malloc(textFromClipboardSize);
 	memset(textFromClipboard, 0, textFromClipboardSize);
-	TextFromClipboard(hForeground, textFromClipboard);
+	TextFromClipboard(hWnd, textFromClipboard);
 
-	if (strcmp((const char*)backUpClipboard, (const char*)textFromClipboard) == 0) {
-		MessageBox(NULL, TEXT("Выбранный текст совпадает с текстом в буфере обмена"), TEXT("Ошибка"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONERROR);
-		return;
-	}
 	if (textFromClipboard != NULL) {
 		uint8_t* salt = (uint8_t*)malloc(SALT_SIZE);
 		memset(salt, 0x00, SALT_SIZE);
@@ -314,25 +289,51 @@ VOID decryptMessage(HWND hForeground) {
 		}
 
 		free(text);
+		free(textFromClipboard);
 
 		InvalidateRect(hWnd, NULL, TRUE);
-	} else {
-		MessageBox(NULL, TEXT("Не найден текст в буфере обмена"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
+
+		MessageBox(NULL, TEXT("Текст в буфере обмена дешифрован"), TEXT("Информация"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONINFORMATION);
 	}
+}
+
+BOOL CALLBACK TrySendMessage(HWND hwnd, LPARAM msg) {
+	SendMessage(hwnd, msg, 0, 0);
+	return TRUE;
+}
+
+VOID getAndEncryptMessage(HWND hForeground) {
+	PBYTE backUpClipboard = NULL;
+	SIZE_T backUpClipboardSize = TextFromClipboard(hForeground, backUpClipboard);
+	backUpClipboard = (PBYTE)malloc(backUpClipboardSize);
+	memset(backUpClipboard, 0, backUpClipboardSize);
+	TextFromClipboard(hForeground, backUpClipboard);
+
+	EnumChildWindows(hForeground, TrySendMessage, WM_CUT);
+	encryptClipboard(hForeground);
+	EnumChildWindows(hForeground, TrySendMessage, WM_PASTE);
+	free(backUpClipboard);
+}
+
+VOID decryptMessage(HWND hForeground) {
+	PBYTE backUpClipboard = NULL;
+	SIZE_T backUpClipboardSize = TextFromClipboard(hForeground, backUpClipboard);
+	backUpClipboard = (PBYTE)malloc(backUpClipboardSize);
+	memset(backUpClipboard, 0, backUpClipboardSize);
+	TextFromClipboard(hForeground, backUpClipboard);
+
+	EnumChildWindows(hForeground, TrySendMessage, WM_COPY);
+	decryptClipboard(hForeground);
 	TextToClipboard(hForeground, backUpClipboard, backUpClipboardSize);
-	free(textFromClipboard);
 	free(backUpClipboard);
 }
 
 VOID addNewUser(PBYTE name, PBYTE key) {
-	if (userCount + 1 < MAX_USERS) {
+	if (userCount <= MAX_USERS) {
 		userCount += 1;
-		strcpy_s((char*)users[userCount].name, NAME_SIZE, (char*)name);
-		strcpy_s((char*)users[userCount].key, KEY_SIZE, (char*)key);
 		currentUser += 1;
-		if (currentUser == MAX_USERS) {
-			currentUser = 0;
-		}
+		strcpy_s((char*)users[currentUser].name, NAME_SIZE, (char*)name);
+		strcpy_s((char*)users[currentUser].key, KEY_SIZE, (char*)key);
 	}
 	InvalidateRect(hWnd, NULL, TRUE);
  }
@@ -348,6 +349,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(lpCmdLine);
 
     // TODO: Разместите код здесь.
+	loadFile();
 
     // Инициализация глобальных строк
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
@@ -377,11 +379,17 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 	if (!RegisterHotKey(NULL, 4, MOD_ALT, 'C')) {
 		ErrorExit(TEXT("C: "));
 	}
+	if (!RegisterHotKey(NULL, 11, MOD_ALT | MOD_SHIFT, 'E')) {
+		ErrorExit(TEXT("only E: "));
+	}
+	if (!RegisterHotKey(NULL, 12, MOD_ALT | MOD_SHIFT, 'D')) {
+		ErrorExit(TEXT("only  D: "));
+	}
     // Цикл основного сообщения:
     while (GetMessage(&msg, nullptr, 0, 0))
     {
 		if (msg.message == WM_HOTKEY) {
-			if (userCount == -1 && (msg.wParam == 1 || msg.wParam == 2)) {
+			if (userCount == 0 && (msg.wParam == 1 || msg.wParam == 2)) {
 				MessageBox(NULL, TEXT("Для начала добавьте собеседника"), TEXT("Предупреждение"), MB_OK | MB_SERVICE_NOTIFICATION | MB_ICONWARNING);
 			} else {
 				switch (msg.wParam) {
@@ -397,6 +405,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 					case 4:
 						DialogBox(hInst, MAKEINTRESOURCE(IDD_SELECT_USER), hWnd, selectUser);
 						break;
+					case 11:
+						encryptClipboard(GetForegroundWindow());
+						break;
+					case 12:
+						decryptClipboard(GetForegroundWindow());
+						break;
 				}
 			}
 		}
@@ -408,6 +422,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
     }
 
+	if (!UnregisterHotKey(NULL, 12)) {
+		ErrorExit(TEXT("Un only D: "));
+	}
+	if (!UnregisterHotKey(NULL, 11)) {
+		ErrorExit(TEXT("Un only E: "));
+	}
 	if (!UnregisterHotKey(NULL, 4)) {
 		ErrorExit(TEXT("Un C: "));
 	}
@@ -463,20 +483,19 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-   hInst = hInstance; // Сохранить маркер экземпляра в глобальной переменной
+    hInst = hInstance; // Сохранить маркер экземпляра в глобальной переменной
+ 
+    hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, 0, 900, 500, nullptr, nullptr, hInstance, nullptr);
+	 
+    if (!hWnd)
+    {
+       return FALSE;
+    }
 
-   hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, 900, 500, nullptr, nullptr, hInstance, nullptr);
+    ShowWindow(hWnd, nCmdShow);
+    UpdateWindow(hWnd);
 
-   if (!hWnd)
-   {
-      return FALSE;
-   }
-
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
-
-   return TRUE;
+    return TRUE;
 }
 
 //
@@ -520,7 +539,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
 		    PBYTE user = NULL;
 			size_t userLen = 0;
-		    if (userCount >= 0) {
+		    if (userCount > 0) {
 				const char* title = "Текущий собеседник: ";
 				int titleLen = strlen(title);
  				int nameLen = 0;
@@ -547,6 +566,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_DESTROY:
+		saveFile();
         PostQuitMessage(0);
         break;
     default:
@@ -685,7 +705,7 @@ INT_PTR CALLBACK selectUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 	{
 	case WM_INITDIALOG:
 		BYTE name[NAME_SIZE];
-		for (int i = 0; i <= userCount; i++) {
+		for (int i = 0; i < userCount; i++) {
 			memset(name, 0x00, NAME_SIZE);
 			strcpy_s((char*)name, NAME_SIZE, (char*)users[i].name);
 			SendDlgItemMessageA(hDlg, IDC_USER_COMBO, CB_ADDSTRING, 0, (LPARAM)name);
@@ -727,4 +747,60 @@ INT_PTR CALLBACK selectUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 	return (INT_PTR)FALSE;
 
 	UNREFERENCED_PARAMETER(lParam);
+}
+
+VOID saveFile() {
+	DWORD dwTemp;
+	HANDLE hFile = CreateFile(L"bu.data", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	for (int i = 0; i < userCount; i++) {
+		PBYTE line = (PBYTE)malloc(KEY_SIZE + NAME_SIZE + 1);
+		memset(line, 0x00, KEY_SIZE + NAME_SIZE + 1);
+		for (int j = 0; j < KEY_SIZE; j++) {
+			line[j] = users[i].key[j];
+		}
+		for (int j = 0; j < NAME_SIZE && users[i].name[j] != '\0'; j++) {
+			line[KEY_SIZE + j] = users[i].name[j];
+		}
+		line[KEY_SIZE + NAME_SIZE] = '\n';
+		WriteFile(hFile, line, KEY_SIZE + NAME_SIZE + 1, &dwTemp, NULL);
+	}
+	CloseHandle(hFile);
+}
+
+VOID loadFile() {
+	DWORD dwTemp;
+	HANDLE hFile = CreateFile(L"bu.data", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE) {
+		return;
+	}
+	PBYTE key = (PBYTE)malloc(KEY_SIZE);
+	PBYTE name = (PBYTE)malloc(NAME_SIZE);
+	PBYTE line = (PBYTE)malloc(KEY_SIZE + NAME_SIZE + 1);
+	BYTE symbol = (BYTE)malloc(1);
+	while (true) {
+		memset(line, 0x00, KEY_SIZE + NAME_SIZE + 1);
+		int pos = 0;
+		ReadFile(hFile, &symbol, 1, &dwTemp, NULL);
+		if (dwTemp == 0) {
+			return;
+		}
+		while (symbol != '\n') {
+			line[pos++] = symbol;
+			ReadFile(hFile, &symbol, 1, &dwTemp, NULL);
+		}
+		currentUser++;
+		memset(key, 0x00, KEY_SIZE);
+		memset(name, 0x00, NAME_SIZE);
+		for (int j = 0; j < KEY_SIZE; j++) {
+			users[currentUser].key[j] = line[j];
+		}
+		for (int j = 0; j < NAME_SIZE && line[KEY_SIZE + j] != '\0'; j++) {
+			users[currentUser].name[j] = line[KEY_SIZE + j];
+		}
+		userCount++;
+	}
+	CloseHandle(hFile);
 }
