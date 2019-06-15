@@ -1,7 +1,4 @@
-﻿// SystemOfTransparentEncryption.cpp : Определяет точку входа для приложения.
-//
-
-#include <windows.h>
+﻿#include <windows.h>
 #include <tlhelp32.h>
 #include <winuser.h>
 #include <stdio.h>
@@ -22,18 +19,21 @@
 
 #define MAX_LOADSTRING 100
 
-#define SALT_SIZE 16
+#define SALT_SIZE 8
 #define NAME_SIZE 21
 #define KEY_SIZE 17 
 #define MAX_USERS 10
+#define BACKUP_FILENAME "bu.data"
 
 struct User {
 	BYTE name[NAME_SIZE];
 	BYTE key[KEY_SIZE];
 } users[MAX_USERS];
 
+
 int userCount = 0;
 int currentUser = -1;
+uint8_t* password;
 
 // Глобальные переменные:
 HINSTANCE hInst;                                // текущий экземпляр
@@ -49,26 +49,27 @@ INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 VOID ErrorExit(LPCTSTR);
 VOID generateSalt(uint8_t*, size_t);
 VOID argon2(uint8_t*, uint32_t, uint8_t*, size_t, uint8_t*);
+VOID crypt(PBYTE, SIZE_T, uint8_t*, uint8_t*, size_t, BOOL);
 VOID crypt(PBYTE, SIZE_T, uint8_t*, size_t, BOOL);
 int toBase64(PBYTE, int, PBYTE);
 int fromBase64(PBYTE, PBYTE);
 SIZE_T TextFromClipboard(HWND, PBYTE);
 VOID TextToClipboard(HWND, PBYTE, SIZE_T);
-VOID encryptClipboard(HWND hWnd);
-VOID decryptClipboard(HWND hWnd);
+VOID encryptClipboard(HWND);
+VOID decryptClipboard(HWND);
 BOOL CALLBACK TrySendMessage(HWND, LPARAM);
 VOID getAndEncryptMessage(HWND);
 VOID decryptMessage(HWND);
 VOID addNewUser(PBYTE, PBYTE);
 INT_PTR CALLBACK addUser(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK selectUser(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK getPassword(HWND, UINT, WPARAM, LPARAM);
 VOID saveFile();
 VOID loadFile();
 
 PBYTE rawText = NULL;
 int rawTextSize = 0;
 HWND hWnd;
-HWND canvas = NULL;
 
 VOID ErrorExit(LPCTSTR lpszFunction) {
 	LPVOID lpMsgBuf;
@@ -103,15 +104,13 @@ VOID generateSalt(uint8_t* salt, size_t saltlen) {
 
 VOID argon2(uint8_t* pwd, uint32_t pwdlen, uint8_t* salt, size_t saltlen, uint8_t* hash) {
 	uint32_t t_cost = 2;            // 1-pass computation
-	uint32_t m_cost = (1 << 16);      // 64 mebibytes memory usage
+	uint32_t m_cost = (1 << 16);    // 64 mebibytes memory usage
 	uint32_t parallelism = 1;       // number of threads and lanes
 	
 	argon2i_hash_raw(t_cost, m_cost, parallelism, pwd, pwdlen, salt, saltlen, hash, KEY_SIZE - 1);
 }
 
-VOID crypt(PBYTE text, SIZE_T textSize, uint8_t* salt, size_t saltlen, BOOL isEncrypt) {
-	uint8_t* key = (uint8_t*)malloc(KEY_SIZE);
-	argon2((uint8_t*)users[currentUser].key, KEY_SIZE - 1, salt, saltlen, key);
+VOID crypt(PBYTE text, SIZE_T textSize, uint8_t* key, uint8_t* salt, size_t saltlen, BOOL isEncrypt) {
 	const uint8_t* iv = (const uint8_t*)malloc(17);
 	strcpy_s((char*)iv, 17, "Mapkn3InitVector");
 
@@ -123,6 +122,12 @@ VOID crypt(PBYTE text, SIZE_T textSize, uint8_t* salt, size_t saltlen, BOOL isEn
 	else {
 		AES_CBC_decrypt_buffer(&ctx, text, textSize);
 	}
+}
+
+VOID crypt(PBYTE text, SIZE_T textSize, uint8_t* salt, size_t saltlen, BOOL isEncrypt) {
+	uint8_t* key = (uint8_t*)malloc(KEY_SIZE);
+	argon2((uint8_t*)users[currentUser].key, KEY_SIZE - 1, salt, saltlen, key);
+	crypt(text, textSize, key, salt, saltlen, isEncrypt);
 }
 
 int toBase64(PBYTE rawStr, int rawStrSize, PBYTE base64Str) {
@@ -364,7 +369,12 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
 
-    // TODO: Разместите код здесь.
+	password = (uint8_t*)malloc(KEY_SIZE);
+	memset(password, 0x00, KEY_SIZE);
+	DialogBox(hInst, MAKEINTRESOURCE(IDD_PASSWORD), hWnd, getPassword);
+	if (strlen((const char*)password) == 0) {
+		return 0;
+	}
 	loadFile();
 
     // Инициализация глобальных строк
@@ -769,58 +779,199 @@ INT_PTR CALLBACK selectUser(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPara
 	UNREFERENCED_PARAMETER(lParam);
 }
 
+INT_PTR CALLBACK getPassword(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	PCHAR lpszPassword = (PCHAR)malloc(KEY_SIZE);
+	memset(lpszPassword, 0x00, KEY_SIZE);
+	BYTE cchPassword;
+
+	switch (message)
+	{
+	case WM_INITDIALOG:
+		// Set the default push button to "Cancel." 
+		SendMessage(hDlg,
+			DM_SETDEFID,
+			(WPARAM)IDCANCEL,
+			(LPARAM)0);
+
+		return (INT_PTR)TRUE;
+
+	case WM_COMMAND:
+		// Set the default push button to "OK" when the user enters text. 
+		if (HIWORD(wParam) == EN_CHANGE &&
+			LOWORD(wParam) == IDC_PASSWORD_EDIT)
+		{
+			SendMessage(hDlg,
+				DM_SETDEFID,
+				(WPARAM)IDOK,
+				(LPARAM)0);
+		}
+		switch (wParam)
+		{
+		case IDOK:
+			// Get number of characters. 
+			cchPassword = (BYTE)SendDlgItemMessage(hDlg,
+				IDC_PASSWORD_EDIT,
+				EM_LINELENGTH,
+				(WPARAM)0,
+				(LPARAM)0);
+			if (cchPassword != KEY_SIZE - 1)
+			{
+				MessageBox(hDlg,
+					L"Длина пароля должна быть 16 символов",
+					L"Ошибка",
+					MB_OK | MB_ICONERROR);
+
+				//EndDialog(hDlg, TRUE);
+				return (INT_PTR)FALSE;
+			}
+
+			// Put the number of characters into first word of buffer. 
+			*((LPBYTE)lpszPassword) = cchPassword;
+
+			// Get the characters. 
+			SendDlgItemMessageA(hDlg,
+				IDC_PASSWORD_EDIT,
+				EM_GETLINE,
+				(WPARAM)0,
+				(LPARAM)lpszPassword);
+
+			for (int i = 0; i < KEY_SIZE; i++) {
+				password[i] = lpszPassword[i];
+			}
+
+			EndDialog(hDlg, TRUE);
+			return (INT_PTR)TRUE;
+		case WM_DESTROY:
+			PostQuitMessage(0);
+			break;
+		}
+		return 0;
+	}
+	return (INT_PTR)FALSE;
+
+	UNREFERENCED_PARAMETER(lParam);
+}
+
 VOID saveFile() {
-	DWORD dwTemp;
-	HANDLE hFile = CreateFile(L"bu.data", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile == INVALID_HANDLE_VALUE) {
+	FILE* f;
+	fopen_s(&f, BACKUP_FILENAME, "w");
+	if (!f) {
+		MessageBox(NULL, L"Не найден файл собеседников", L"Внимание", MB_OK | MB_ICONWARNING);
 		return;
 	}
 	for (int i = 0; i < userCount; i++) {
-		PBYTE line = (PBYTE)malloc(KEY_SIZE + NAME_SIZE + 1);
-		memset(line, 0x00, KEY_SIZE + NAME_SIZE + 1);
-		for (int j = 0; j < KEY_SIZE; j++) {
+		char* line = (char*)malloc(KEY_SIZE + NAME_SIZE - 1);
+		memset(line, 0x00, KEY_SIZE + NAME_SIZE - 1);
+		int j = 0;
+		for (; j < KEY_SIZE - 1; j++) {
 			line[j] = users[i].key[j];
 		}
-		for (int j = 0; j < NAME_SIZE && users[i].name[j] != '\0'; j++) {
-			line[KEY_SIZE + j] = users[i].name[j];
+		for (; j < KEY_SIZE + NAME_SIZE - 1 && users[i].name[j - KEY_SIZE + 1] != '\0'; j++) {
+			line[j] = users[i].name[j - KEY_SIZE + 1];
 		}
-		line[KEY_SIZE + NAME_SIZE] = '\n';
-		WriteFile(hFile, line, KEY_SIZE + NAME_SIZE + 1, &dwTemp, NULL);
+		line[j++] = '\n';
+
+		SIZE_T textSize = j;
+		if (j % 16 != 0) {
+			textSize += 16 - (j % 16);
+		}
+		PBYTE text = (PBYTE)malloc(textSize);
+		memset(text, 0x00, textSize);
+		for (int i = 0; i < j; i++) {
+			text[i] = line[i];
+		}
+
+		uint8_t* salt = (uint8_t*)malloc(SALT_SIZE);
+		memset(salt, 0x00, SALT_SIZE);
+		generateSalt(salt, SALT_SIZE);
+
+		crypt(text, textSize, password, salt, SALT_SIZE, TRUE);
+
+		PBYTE base64 = NULL;
+		int base64Size = toBase64(text, textSize, base64);
+		base64 = (PBYTE)malloc(base64Size);
+		memset(base64, 0x00, base64Size);
+		toBase64(text, textSize, base64);
+
+		PBYTE result = NULL;
+		int resultSize = base64Size + SALT_SIZE + 1;
+		result = (PBYTE)malloc(resultSize);
+		memset(result, 0x00, resultSize);
+		int k = 0;
+		for (int i = 0; i < SALT_SIZE; i++) {
+			result[k++] = salt[i];
+		}
+		for (int i = 0; i < base64Size; i++) {
+			result[k++] = base64[i];
+		}
+		fprintf(f, "%s\n", result);
 	}
-	CloseHandle(hFile);
+	fclose(f);
 }
 
 VOID loadFile() {
-	DWORD dwTemp;
-	HANDLE hFile = CreateFile(L"bu.data", GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-	if (hFile == INVALID_HANDLE_VALUE) {
-		return;
-	}
 	PBYTE key = (PBYTE)malloc(KEY_SIZE);
 	PBYTE name = (PBYTE)malloc(NAME_SIZE);
-	PBYTE line = (PBYTE)malloc(KEY_SIZE + NAME_SIZE + 1);
-	BYTE symbol = (BYTE)malloc(1);
-	while (true) {
-		memset(line, 0x00, KEY_SIZE + NAME_SIZE + 1);
-		int pos = 0;
-		ReadFile(hFile, &symbol, 1, &dwTemp, NULL);
-		if (dwTemp == 0) {
-			return;
+	char* line = (char*)malloc(53);
+	PBYTE user;
+	int userSize;
+	memset(line, 0x00, 53);
+	FILE* f;
+	fopen_s(&f, BACKUP_FILENAME, "r");
+	if (!f) {
+		MessageBox(NULL, L"Не найден файл собеседников", L"Внимание", MB_OK | MB_ICONWARNING);
+		return;
+	}
+	while (fgets(line, 53, f)) {
+		if (strlen(line) == 0) {
+			break;
 		}
-		while (symbol != '\n') {
-			line[pos++] = symbol;
-			ReadFile(hFile, &symbol, 1, &dwTemp, NULL);
+		uint8_t* salt = (uint8_t*)malloc(SALT_SIZE);
+		memset(salt, 0x00, SALT_SIZE);
+
+		int base64Size = 53 - SALT_SIZE;
+		PBYTE base64 = (PBYTE)malloc(base64Size);
+		memset(base64, 0x00, base64Size);
+		int k = 0;
+		for (int i = 0; i < SALT_SIZE; i++) {
+			salt[i] = line[k++];
 		}
+		for (int i = 0; i < base64Size; i++) {
+			base64[i] = line[k++];
+		}
+
+		PBYTE text = NULL;
+		int textSize = fromBase64(base64, text);
+		text = (PBYTE)malloc(textSize);
+		memset(text, 0x00, textSize);
+		textSize = fromBase64(base64, text);
+		text = (PBYTE)malloc(textSize);
+		memset(text, 0x00, textSize);
+		fromBase64(base64, text);
+
+		crypt(text, textSize, password, salt, SALT_SIZE, FALSE);
+
+		userSize = textSize;
+		user = (PBYTE)malloc(userSize);
+		memset(user, 0x00, userSize);
+		for (int i = 0; i < userSize; i++) {
+			user[i] = text[i];
+		}
+
 		currentUser++;
 		memset(key, 0x00, KEY_SIZE);
 		memset(name, 0x00, NAME_SIZE);
-		for (int j = 0; j < KEY_SIZE; j++) {
-			users[currentUser].key[j] = line[j];
+		int j = 0;
+		for (; j < KEY_SIZE - 1; j++) {
+			users[currentUser].key[j] = user[j];
 		}
-		for (int j = 0; j < NAME_SIZE && line[KEY_SIZE + j] != '\0'; j++) {
-			users[currentUser].name[j] = line[KEY_SIZE + j];
+		for (; j < KEY_SIZE + NAME_SIZE - 1 && user[j] != '\n'; j++) {
+			users[currentUser].name[j - KEY_SIZE + 1] = user[j];
 		}
 		userCount++;
+		memset(line, 0x00, 53);
 	}
-	CloseHandle(hFile);
+	fclose(f);
 }
+ 
