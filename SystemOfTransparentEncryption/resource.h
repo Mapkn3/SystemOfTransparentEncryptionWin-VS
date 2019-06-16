@@ -14,12 +14,15 @@
 #define IDR_MAINFRAME                   128
 #define IDD_ADD_USER                    130
 #define IDD_SELECT_USER                 132
+#define IDD_PASSWORD                    133
 #define IDC_NAME_EDIT                   1001
 #define IDC_NAME_LABEL                  1002
 #define IDC_KEY_EDIT                    1003
 #define IDC_KEY_LABEL                   1004
 #define IDC_USER_COMBO                  1005
 #define IDC_USER_LABEL                  1007
+#define IDC_PASSWORD_LABEL              1008
+#define IDC_PASSWORD_EDIT               1009
 #define IDM_ADD_USER                    32772
 #define ID_SELECT_USER                  32775
 #define IDM_SELECT_USER                 32776
@@ -30,9 +33,9 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NO_MFC                     1
-#define _APS_NEXT_RESOURCE_VALUE        133
+#define _APS_NEXT_RESOURCE_VALUE        134
 #define _APS_NEXT_COMMAND_VALUE         32777
-#define _APS_NEXT_CONTROL_VALUE         1008
+#define _APS_NEXT_CONTROL_VALUE         1010
 #define _APS_NEXT_SYMED_VALUE           110
 #endif
 #endif
